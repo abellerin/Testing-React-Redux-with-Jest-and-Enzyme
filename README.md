@@ -9,3 +9,6 @@ Within this project you will find examples of testing:
 * Action creators and reducers
 * Complex action creators that use Redux Thunk and Axios
 * Action creators called from connected components
+
+
+Esto es un cambio trivial para realizar un primer commit desde la rama feature-cambio-trivial
