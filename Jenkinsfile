@@ -1,59 +1,80 @@
 pipeline {
     agent any
-
     environment {
-        TIMESTAMP = "${new Date().format('yyyyMMdd_HHmmss')}"
-        OUTPUT_DIR = "seguridad_${TIMESTAMP}"
+        TIMESTAMP = new Date().format("yyyyMMdd_HHmmss")
+    }
+    stages {
+        stage('Versiones') {
+            steps {
+                script {
+                    def filename = "versiones_${TIMESTAMP}.txt"
+                    sh """
+                        echo "Java Version:" >> ${filename}
+                        java -version 2>> ${filename}
+                        echo "\\nJenkins Version:" >> ${filename}
+                        curl -I -s http://\$(ip route | awk '/default/ { print \$3 }'):8081 | grep -i X-Jenkins >> ${filename} || true
+                    """
+
+                    // Guardar como artefacto descargable
+                    archiveArtifacts artifacts: filename, fingerprint: true
+                }
+            }
+        }
+        stage('Escaneo de Puertos') {
+            steps {
+                script {
+                    def filename = "puertos_${TIMESTAMP}.txt"
+                    def ip = sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
+                    sh """
+                        echo "Puertos abiertos en la IP ${ip}:" > ${filename}
+                        nmap ${ip} -p- >> ${filename}
+                    """
+
+                    // Guardar como artefacto descargable
+                    archiveArtifacts artifacts: filename, fingerprint: true
+                }
+            }
+        }
+        stage('Checksums SHA-256') {
+            steps {
+                script {
+                    def filename = "hashes_${TIMESTAMP}.txt"
+                    def ruta = "${env.JENKINS_HOME}/workspace/securityPipeline"
+                    sh """
+                        find ${ruta} -type f -exec sha256sum {} \\; > ${filename}
+                    """
+                    // Guardar como artefacto descargable
+                    archiveArtifacts artifacts: filename, fingerprint: true
+                }
+            }
+        }
+        stage('Comparación de Hashes (opcional)') {
+            when {
+                expression {
+                    // Solo ejecutar si hay un archivo anterior
+                    return fileExists("hashes_previo.txt")
+                }
+            }
+            steps {
+                script {
+                    def filename = "comparacion_hashes.txt"
+                    def actual = "hashes_${TIMESTAMP}.txt"
+                    sh """
+                        echo "Comparación entre hashes_previo.txt y ${actual}:" > ${filename}
+                        diff hashes_previo.txt ${actual} >> ${filename} || echo "Cambios detectados"
+                    """
+                    // Guardar como artefacto descargable
+                    archiveArtifacts artifacts: filename, fingerprint: true
+                }
+            }
+        }
+
     }
 
-    stages {
-
-        stage('Preparar directorio') {
-            steps {
-                sh 'mkdir -p $OUTPUT_DIR'
-            }
-        }
-
-        stage('Obtener versiones') {
-            steps {
-                sh '''
-                    echo "Versión de Java:" > $OUTPUT_DIR/versiones_$TIMESTAMP.txt
-                    java -version 2>> $OUTPUT_DIR/versiones_$TIMESTAMP.txt
-
-                    echo "\\nVersión de Jenkins:" >> $OUTPUT_DIR/versiones_$TIMESTAMP.txt
-                    curl -s http://localhost:8080/api/json?pretty=true | grep "version" >> $OUTPUT_DIR/versiones_$TIMESTAMP.txt
-                '''
-            }
-        }
-
-        stage('Escanear IP y puertos abiertos') {
-            steps {
-                sh '''
-                    IP=$(hostname -I | awk '{print $1}')
-                    nmap -Pn -sS $IP -oN $OUTPUT_DIR/puertos_$TIMESTAMP.txt
-                '''
-            }
-        }
-
-        stage('Obtener hashes SHA-256') {
-            steps {
-                sh '''
-                    HASH_OUTPUT="$OUTPUT_DIR/hashes_$TIMESTAMP.txt"
-                    RUTA="/var/jenkins_home/workspace/tuJob/subfolder/project"
-
-                    if [ -d "$RUTA" ]; then
-                        find $RUTA -type f -exec sha256sum {} \\; > $HASH_OUTPUT
-                    else
-                        echo "La ruta $RUTA no existe" > $HASH_OUTPUT
-                    fi
-                '''
-            }
-        }
-
-        stage('Archivar resultados') {
-            steps {
-                archiveArtifacts artifacts: '$OUTPUT_DIR/*.txt', fingerprint: true
-            }
+    post {
+        always {
+            // Guardar el archivo actual como base para futura comparación
+            sh "cp hashes_${TIMESTAMP}.txt hashes_previo.txt"
         }
     }
 }
