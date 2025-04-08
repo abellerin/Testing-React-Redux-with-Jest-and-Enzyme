@@ -24,10 +24,10 @@ pipeline {
             steps {
                 script {
                     def filename = "puertos_${TIMESTAMP}.txt"
-                    def ip = sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
+                    def jenkinsIP = sh(script: "hostname -I | awk '{print \$1}'", returnStdout: true).trim()
                     sh """
-                        echo "Puertos abiertos en la IP ${ip}:" > ${filename}
-                        nmap ${ip} -p- >> ${filename}
+                        echo "\\nJenkins Version:" >> ${filename}
+                        curl -I -s http://${jenkinsIP}:8081 | grep -i X-Jenkins >> ${filename} || true
                     """
 
                     // Guardar como artefacto descargable
